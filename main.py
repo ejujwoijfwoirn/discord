@@ -8,7 +8,7 @@ import asyncio
 from datetime import datetime
 
 # --- الإعدادات الأساسية ---
-TOKEN = "spin_bot_token" # ضع توكن البوت هنا
+TOKEN = os.getenv("spin_bot_token") # ضع توكن البوت هنا
 INVITE_CHANNEL_ID = 1456697216457769168  # ⚠️ ⚠️ ضع هنا آيدي (ID) روم الإنفايت التي تريد إرسال التنبيهات فيها
 INTENTS = discord.Intents.default()
 INTENTS.message_content = True
@@ -283,4 +283,5 @@ while True:
     except Exception as e:
         print(f"حدث خطأ، سيتم إعادة المحاولة بعد 5 ثواني: {e}")
         import time
+
         time.sleep(5)
