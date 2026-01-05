@@ -134,12 +134,13 @@ async def name(ctx, *, new_name: str):
         await ctx.send("❌ هذا الأمر يعمل فقط داخل التذاكر.")
 
 # === 🔥 أمر إنهاء التذكرة الجديد 🔥 ===
+# === 🔥 أمر إنهاء التذكرة المحدث 🔥 ===
 @bot.command(aliases=['انهاء', 'اغلاق', 'close'])
 async def close_ticket(ctx):
     if not is_ticket(ctx):
         return await ctx.send("❌ هذا الأمر يعمل فقط داخل التذاكر.")
 
-    # التحقق من الصلاحيات (فقط الوسيط المستلم أو الإدارة أو صاحب الرول)
+    # التحقق من الصلاحيات
     role = ctx.guild.get_role(MIDDLEMAN_ROLE_ID)
     is_admin = ctx.author.guild_permissions.administrator
     has_role = role in ctx.author.roles if role else False
@@ -151,12 +152,14 @@ async def close_ticket(ctx):
 
     # عرض خيارات الإغلاق
     close_embed = discord.Embed(
-        title="🔒 تأكيد إنهاء العملية",
-        description="هل تمت عملية الوساطة بنجاح وتريد أرشفتها؟",
+        title="🔒 خيارات إنهاء التذكرة",
+        description="يرجى تحديد حالة العملية لإغلاق التذكرة:",
         color=discord.Color.dark_grey()
     )
+    close_embed.add_field(name="✅ تمت بنجاح", value="سيتم إرسال طلب تقييم للعملاء وحذف التذكرة.", inline=False)
+    close_embed.add_field(name="⛔ لم تتم / فشلت", value="سيتم حذف التذكرة **بدون** إزعاج العملاء بطلب تقييم.", inline=False)
+    
     await ctx.send(embed=close_embed, view=CloseOptionView())
-
 # =========================================================
 # 🎟️ نظام الوساطة (Views)
 # =========================================================
@@ -165,23 +168,27 @@ class CloseOptionView(View):
     def __init__(self): 
         super().__init__(timeout=None)
     
-    @discord.ui.button(label="✅ نعم، تمت بنجاح", style=discord.ButtonStyle.green, custom_id="c_success")
-    async def confirm_close(self, i: discord.Interaction, b: discord.ui.Button):
+    # =========================================================================
+    # الخيار الأول: العملية تمت بنجاح -> إرسال تقييم + حذف التذكرة
+    # =========================================================================
+    @discord.ui.button(label="✅ تمت العملية (إرسال تقييم)", style=discord.ButtonStyle.green, custom_id="c_success")
+    async def confirm_success(self, i: discord.Interaction, b: discord.ui.Button):
         await i.response.defer()
         
         mediator_id = ticket_claims.get(i.channel.id)
         mediator = i.guild.get_member(mediator_id) if mediator_id else None
 
-        # إرسال التقييم للأطراف (ما عدا البوتات والوسيط)
+        # --- إرسال التقييم للأطراف ---
         if mediator:
+            # تحديد الأعضاء (غير البوتات وغير الوسيط)
             members_to_rate = [x for x in i.channel.members if not x.bot and x.id != mediator_id]
             
             for p in members_to_rate:
                 try:
                     rating_embed = discord.Embed(
                         title="🌟 تقييم مستوى الخدمة",
-                        description=f"عزيزي {p.name}،\nشكراً لاستخدامك خدماتنا.\n\nكيف كانت تجربتك مع الوسيط {mediator.mention}؟\nيرجى اختيار التقييم المناسب بالأسفل.",
-                        color=discord.Color.from_rgb(47, 49, 54) # لون داكن فخم
+                        description=f"عزيزي {p.name}،\nشكراً لاستخدامك خدماتنا.\n\nبما أن العملية تمت بنجاح، كيف كانت تجربتك مع الوسيط {mediator.mention}؟\nيرجى اختيار التقييم المناسب بالأسفل.",
+                        color=discord.Color.from_rgb(47, 49, 54)
                     )
                     rating_embed.set_thumbnail(url=i.guild.icon.url if i.guild.icon else None)
                     rating_embed.set_footer(text="Arbitration Legend System")
@@ -190,29 +197,42 @@ class CloseOptionView(View):
                 except Exception as e:
                     print(f"Error sending DM to {p}: {e}")
         
-        # رسالة الحذف
+        # استدعاء دالة الحذف
+        await self.delete_ticket_logic(i, "تمت العملية بنجاح ✅")
+
+    # =========================================================================
+    # الخيار الثاني: العملية لم تتم -> حذف التذكرة فقط (بدون تقييم)
+    # =========================================================================
+    @discord.ui.button(label="⛔ لم تتم / فشلت (إغلاق فقط)", style=discord.ButtonStyle.danger, custom_id="c_failed")
+    async def confirm_failed(self, i: discord.Interaction, b: discord.ui.Button):
+        await i.response.defer()
+        # هنا نستدعي الحذف مباشرة دون كود إرسال التقييمات
+        await self.delete_ticket_logic(i, "تم إغلاق التذكرة لعدم إتمام العملية ⛔")
+
+    # =========================================================================
+    # دالة مساعدة لعملية الحذف وتنظيف البيانات (لتجنب تكرار الكود)
+    # =========================================================================
+    async def delete_ticket_logic(self, interaction, reason_msg):
+        # رسالة الحذف النهائية
         completion_embed = discord.Embed(
-            description="📂 **سيتم أرشفة وحذف التذكرة خلال 5 ثواني...**",
+            description=f"📂 **{reason_msg}**\nسيتم أرشفة وحذف التذكرة خلال 5 ثواني...",
             color=discord.Color.greyple()
         )
-        await i.channel.send(embed=completion_embed)
+        await interaction.channel.send(embed=completion_embed)
         
         await asyncio.sleep(5)
         
-        # تنظيف البيانات
-        if i.channel.id in ticket_claims: del ticket_claims[i.channel.id]
+        # تنظيف البيانات من القواميس (Dictionaries)
+        if interaction.channel.id in ticket_claims: 
+            del ticket_claims[interaction.channel.id]
+            
         for user_id, channel_id in list(active_tickets.items()):
-            if channel_id == i.channel.id:
+            if channel_id == interaction.channel.id:
                 del active_tickets[user_id]
                 break
                 
-        await i.channel.delete()
-    
-    @discord.ui.button(label="❌ إلغاء الإغلاق", style=discord.ButtonStyle.grey, custom_id="c_cancel")
-    async def cancel_close(self, i, b):
-        await i.message.delete()
-        await i.response.send_message("تم إلغاء عملية الإغلاق.", ephemeral=True)
-
+        # حذف الروم
+        await interaction.channel.delete()
 class TicketView(View):
     def __init__(self): 
         super().__init__(timeout=None)
@@ -379,4 +399,5 @@ async def setup(ctx):
         await ctx.send(embed=setup_embed, view=TicketView())
 
 bot.run(TOKEN)
+
 
