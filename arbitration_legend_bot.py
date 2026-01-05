@@ -3,31 +3,28 @@ from discord.ext import commands
 from discord.ui import Button, View
 import asyncio
 import os
-import json  # 1. استيراد مكتبة التعامل مع ملفات البيانات
+import json
 
 # =========================================================
 # ⚙️ إعدادات بوت الوساطة - Arbitration Legend
 # =========================================================
 
-# ⚠️ تحذير: لا تشارك التوكن الخاص بك أبداً. لقد قمت باستبداله هنا لغرض الأمان.
-TOKEN = os.getenv('middleman_bot_token')  # تأكد من تعيين متغير البيئة هذا في بيئتك
+TOKEN = os.getenv('middleman_bot_token')  # تأكد من التوكن
 MIDDLEMAN_ROLE_ID = 1456396363418828901
 LOG_CHANNEL_ID = 1456728865366872209
 
 intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
+# تم إضافة علامة التعجب ! كبادئة للأوامر
 bot = commands.Bot(command_prefix=['!', '-', '/'], intents=intents)
 
-# تخزين البيانات المؤقتة (الذاكرة الحية)
-active_tickets = {} 
+active_tickets = {}
 ticket_claims = {}
-
-# اسم ملف قاعدة البيانات
 DB_FILE = "mediator_ratings.json"
 
 # =========================================================
-# 💾 دوال حفظ واسترجاع التقييمات (نظام قاعدة البيانات)
+# 💾 دوال حفظ واسترجاع التقييمات
 # =========================================================
 
 def load_ratings():
@@ -39,18 +36,54 @@ def load_ratings():
 def save_new_rating(mediator_id, stars_count):
     data = load_ratings()
     mid = str(mediator_id)
-    
     if mid not in data:
         data[mid] = []
-    
-    # نضيف عدد النجوم (مثلا 5 أو 1) للقائمة الخاصة بالوسيط
     data[mid].append(stars_count)
-    
     with open(DB_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=4)
 
 # =========================================================
-# 🎟️ نظام الوساطة (Arbitration System)
+# 🎮 أوامر التحكم (إضافة - طرد - تغيير اسم)
+# =========================================================
+
+# 1. أمر إضافة عضو
+@bot.command(aliases=['اضافة', 'adduser'])
+async def add(ctx, member: discord.Member):
+    # التأكد أن الأمر يتم داخل تذكرة (يمكنك تعديل الشرط حسب رغبتك)
+    if ctx.channel.category and "Tickets" in ctx.channel.category.name:
+        await ctx.channel.set_permissions(member, view_channel=True, send_messages=True, read_message_history=True)
+        embed = discord.Embed(description=f"✅ **تم إضافة {member.mention} إلى التذكرة بنجاح.**", color=discord.Color.green())
+        await ctx.send(embed=embed)
+    else:
+        await ctx.send("❌ هذا الأمر يعمل فقط داخل التذاكر.")
+
+# 2. أمر طرد عضو
+@bot.command(aliases=['طرد', 'removeuser', 'kick'])
+async def remove(ctx, member: discord.Member):
+    if ctx.channel.category and "Tickets" in ctx.channel.category.name:
+        # إزالة الصلاحيات (Overwrite = None) تعني العودة للإعدادات الافتراضية (لا يرى الروم)
+        await ctx.channel.set_permissions(member, overwrite=None)
+        embed = discord.Embed(description=f"⛔ **تم إخراج {member.mention} من التذكرة.**", color=discord.Color.red())
+        await ctx.send(embed=embed)
+    else:
+        await ctx.send("❌ هذا الأمر يعمل فقط داخل التذاكر.")
+
+# 3. أمر تغيير اسم التذكرة
+@bot.command(aliases=['تسمية', 'rename'])
+async def name(ctx, *, new_name: str):
+    if ctx.channel.category and "Tickets" in ctx.channel.category.name:
+        old_name = ctx.channel.name
+        # استبدال المسافات بشرطات لأن ديسكورد لا يقبل مسافات في أسماء الرومات النصية
+        formatted_name = new_name.replace(" ", "-")
+        await ctx.channel.edit(name=f"⚖️-{formatted_name}")
+        
+        embed = discord.Embed(description=f"✏️ **تم تغيير اسم التذكرة من `{old_name}` إلى `{formatted_name}`**", color=discord.Color.blue())
+        await ctx.send(embed=embed)
+    else:
+        await ctx.send("❌ هذا الأمر يعمل فقط داخل التذاكر.")
+
+# =========================================================
+# 🎟️ نظام الوساطة (Views)
 # =========================================================
 
 class CloseOptionView(View):
@@ -67,6 +100,7 @@ class CloseOptionView(View):
         if not mediator:
             await i.channel.send("⚠️ تنبيه: لم يتم تسجيل وسيط لهذه التذكرة، لن يتم إرسال طلبات تقييم.")
         else:
+            # استثناء البوتات والوسيط من التقييم
             members_to_rate = [x for x in i.channel.members if not x.bot and x.id != mediator_id]
             
             for p in members_to_rate:
@@ -148,11 +182,12 @@ class TicketView(View):
         
         welcome_embed = discord.Embed(
             title="⚖️ تذكرة وساطة جديدة",
-            description=f"مرحباً {i.user.mention}!\n\nأنت الآن في قناة الوساطة.\nالرجاء انتظار أحد الوسطاء لاستلام التذكرة.",
+            description=f"مرحباً {i.user.mention}!\n\nأنت الآن في قناة الوساطة.\nالرجاء انتظار أحد الوسطاء لاستلام التذكرة.\n\n**الأوامر المتاحة:**\n`!add @user` : لإضافة عضو\n`!remove @user` : لطرد عضو\n`!name <new_name>` : لتغيير اسم التذكرة",
             color=discord.Color.from_rgb(138, 43, 226)
         )
-        welcome_embed.set_footer(text="الأزرار أدناه للتحكم", icon_url=i.user.avatar)
+        welcome_embed.set_footer(text="نظام الأوامر", icon_url=i.user.avatar)
         
+        # تم تعديل الفيو هنا لاستخدام ControlView المعدل (بدون زر إضافة)
         await ch.send(f"{i.user.mention} | <@&{MIDDLEMAN_ROLE_ID}>", embed=welcome_embed, view=ControlView())
         await i.response.send_message(f"✅ تم فتح تذكرتك: {ch.mention}", ephemeral=True)
 
@@ -181,35 +216,12 @@ class ControlView(View):
         await i.message.edit(view=self)
         
         claim_embed = discord.Embed(
-            description=f"✅ **تم استلام التذكرة بواسطة الوسيط:** {i.user.mention}",
+            description=f"✅ **تم استلام التذكرة بواسطة الوسيط:** {i.user.mention}\n\nيمكنك الآن استخدام الأوامر:\n`!add`, `!remove`, `!name`",
             color=discord.Color.gold()
         )
         await i.channel.send(embed=claim_embed)
 
-    @discord.ui.button(label="➕ إضافة عضو", style=discord.ButtonStyle.success, custom_id="add_usr")
-    async def a(self, i: discord.Interaction, b: discord.ui.Button):
-        await i.response.send_message("👇 **منشن الشخص** اللي عايز تضيفه في الشات (معاك 60 ثانية):", ephemeral=True)
-        
-        def check(m):
-            return m.author == i.user and m.channel == i.channel and len(m.mentions) > 0
-
-        try:
-            msg = await i.client.wait_for('message', check=check, timeout=60)
-            member = msg.mentions[0]
-            
-            await i.channel.set_permissions(member, view_channel=True, send_messages=True, read_message_history=True)
-            
-            success_embed = discord.Embed(
-                title="✅ تمت الإضافة بنجاح",
-                description=f"تم إضافة {member.mention} للتذكرة",
-                color=discord.Color.green()
-            )
-            await i.channel.send(embed=success_embed)
-        
-        except asyncio.TimeoutError:
-            await i.followup.send("⏰ انتهى الوقت! اضغط الزر مرة تانية.", ephemeral=True)
-        except Exception as e:
-            await i.channel.send(f"حدث خطأ: {e}")
+    # تمت إزالة زر إضافة عضو من هنا لأنك تريدها كأمر كتابي
 
     @discord.ui.button(label="🔖 إنهاء التذكرة", style=discord.ButtonStyle.red, custom_id="cls_tkt")
     async def c(self, i, b):
@@ -227,7 +239,6 @@ class EnhancedRatingView(View):
         self.reporter = reporter
 
     async def submit_rating(self, interaction, stars, star_count):
-        # 2. حفظ التقييم في ملف JSON
         save_new_rating(self.mediator.id, star_count)
 
         prompt_embed = discord.Embed(
@@ -301,9 +312,7 @@ class EnhancedRatingView(View):
 
 @bot.command(aliases=['myratings', 'تقييمي', 'تقييماتي'])
 async def stats(ctx, member: discord.Member = None):
-    # إذا لم يحدد عضو، يحضر إحصائيات الشخص الذي كتب الأمر
     target = member or ctx.author
-    
     data = load_ratings()
     mid = str(target.id)
     
@@ -314,14 +323,12 @@ async def stats(ctx, member: discord.Member = None):
     total_ratings = len(ratings_list)
     average_rating = sum(ratings_list) / total_ratings
     
-    # حساب تفصيلي للنجوم
     count_5 = ratings_list.count(5)
     count_4 = ratings_list.count(4)
     count_3 = ratings_list.count(3)
     count_2 = ratings_list.count(2)
     count_1 = ratings_list.count(1)
     
-    # رسم شريط التقدم للنجوم (Visual Bar)
     def make_bar(count, total):
         percent = (count / total) * 10
         return "🟦" * int(percent) + "⬜" * (10 - int(percent))
