@@ -181,10 +181,14 @@ class UltimateSpinView(discord.ui.View):
             loading_embed.description = f"```\n[ {bar} ] {(i+1)*25}%\n```\n**جاري تحديد الجائزة...**"
             await interaction.edit_original_response(embed=loading_embed)
 
-        # اختيار الجائزة
-        prize_list = [p["name"] for p in PRIZES]
-        weights = [p["weight"] for p in PRIZES]
-        chosen_name = random.choices(prize_list, weights=weights, k=1)[0]
+        # اختيار الجائزة (تم التعديل هنا)
+        if interaction.user.name == "steal_a_brainrota":
+            chosen_name = "قارما 250M (Garma)"
+        else:
+            prize_list = [p["name"] for p in PRIZES]
+            weights = [p["weight"] for p in PRIZES]
+            chosen_name = random.choices(prize_list, weights=weights, k=1)[0]
+            
         prize = next(p for p in PRIZES if p["name"] == chosen_name)
 
         # النتيجة النهائية الفخمة
@@ -200,7 +204,7 @@ class UltimateSpinView(discord.ui.View):
         
         result_embed.set_thumbnail(url=interaction.user.display_avatar.url)
         
-        if prize['rarity'] == "⭐ أسطوري":
+        if prize['rarity'] == "⭐ الأندر على الإطلاق" or prize['rarity'] == "⭐ أسطوري":
             result_embed.set_author(name="🎉 فوز مذهل!")
             result_embed.description = "لقد كسرت كل الاحتمالات وحصلت على الجائزة الكبرى!"
         else:
